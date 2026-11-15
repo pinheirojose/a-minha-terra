@@ -53,7 +53,7 @@ const pt = {
 }
 
 const en: typeof pt = {
-  title: 'A Minha Terra',
+  title: 'In My Hometown',
   tagline: "What's happening right now in my hometown",
   concelho: 'Municipality',
   pickPlaceholder: 'Type a municipality…',
