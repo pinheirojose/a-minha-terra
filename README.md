@@ -25,7 +25,13 @@ The key is optional. Without it API Aberta allows 30 requests/min per IP, and on
 
 **The key never reaches the browser.** The page calls `/api/...`. The Vite dev/preview proxy (`vite.config.ts`) forwards that to `https://api.apiaberta.pt` and adds the `X-API-Key` header on the server side. `envPrefix` is set so no `.env` value is bundled into client code.
 
-> ⚠️ The proxy only runs under `npm run dev` / `npm run preview`. For a static deploy, add the same `/api/* → api.apiaberta.pt` rewrite with the header on your host, e.g. a ~10-line serverless function.
+## Deploy (Vercel)
+
+Live at **https://a-minha-terra.vercel.app**. Every push to `main` redeploys.
+
+In production, `api/proxy.ts` plays the part of the Vite proxy. `vercel.json` rewrites `/api/*` to it, and it forwards `GET /v1/...` to API Aberta with the `X-API-Key` header. Any other path gets a 404, so it can't be used as an open proxy. Responses are cached at Vercel's CDN for 60 s, so many visitors share requests instead of each using up the rate limit.
+
+Set one environment variable in the Vercel project (mark it Sensitive): `APIABERTA_KEY` = your API Aberta key.
 
 Other scripts: `npm run build` (type-check + build) and `npm test` (unit tests for the matching and aggregation logic, run with Node's built-in test runner).
 
