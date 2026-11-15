@@ -43,14 +43,13 @@ Other scripts: `npm run build` (type-check + build) and `npm test` (unit tests f
 | Weather | `GET /v1/ipma/locations` → `GET /v1/ipma/forecasts/:cityId` | IPMA forecasts exist for 35 locations, not every concelho. The app uses a same-name location if there is one, otherwise the nearest by coordinates, and says which. "Today" is IPMA's daily forecast (text, min/max, rain %, wind); API Aberta has no live observations. |
 | Civil protection | `GET /v1/anpc/incidents?active=true&district=…` | Active ANEPC incidents in the district, narrowed to the concelho using the incident address ("District, Municipality, Parish"). ANEPC doesn't cover Azores/Madeira. |
 | Fuel | `GET /v1/fuel/stations?fuel=diesel\|gasoline_95&district=…` (all pages), fallback `GET /v1/fuel/prices` | Average of the concelho's stations, otherwise the district, otherwise the national average. Only the most recent DGEG day is used (some stations keep stale prices). Scope and date are shown. |
-| Contracts table | `GET /v1/base/contracts/search?q=Município de …` (once, to find the Câmara's NIF), then `GET /v1/base/contracts?nif=…&page=…` | Newest first, 10 per page, linked to the record on base.gov.pt. |
-| Spending per year | `GET /v1/base/contracts?nif=…&year=YYYY` (all pages); earliest year from the last page of `?nif=…` | Total, count and monthly bars by contract date. |
+| Contracts + spending per year | `GET /v1/base/contracts/search?q=Município de …` (once, to find the Câmara's NIF), then `GET /v1/base/contracts?nif=…&year=YYYY` (all pages); earliest year from the last page of `?nif=…` | One year selector drives both cards. The selected year's contracts are fetched once. The table pages through them (newest first, 10 per page, linked to base.gov.pt), and the side card shows the total, count and monthly bars from the same rows, so the numbers always match. |
 
 **VAT:** amounts are BASE's *preço contratual*, which is **without VAT**. The UI says so next to the totals and the table.
 
 ## Quirks worth knowing
 
-- `nif` on `/v1/base/contracts` matches the buyer **or** the supplier. The app keeps only contracts where the Câmara is the buyer (`contractingEntity`). In the paginated table this filtering happens after paging, so a page can rarely show fewer than 10 rows.
+- `nif` on `/v1/base/contracts` matches the buyer **or** the supplier. The app keeps only contracts where the Câmara is the buyer (`contractingEntity`).
 - `district` on `/fuel/stations` and `/anpc/incidents` is a case-insensitive substring match (`Braga` also matches `Bragança`), so the app re-checks the district name exactly.
 - Azores/Madeira municipalities have `district: null` in the geo data. geoapi's centroid for Funchal is ~110 km off, which is why same-name IPMA locations take priority.
 

@@ -32,16 +32,28 @@ async function api<T>(path: string, retried = false): Promise<T> {
   return r.json()
 }
 
-/** Cache a computed result in localStorage with a TTL. Storage failures just mean no cache. */
-async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+const memory = new Map<string, { t: number; p: Promise<unknown> }>()
+
+/**
+ * Cache a computed result with a TTL: in memory (also dedupes concurrent calls) and in
+ * localStorage across reloads. Storage failures (quota, private mode) just mean less caching.
+ */
+function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const mem = memory.get(key)
+  if (mem && Date.now() - mem.t < ttlMs) return mem.p as Promise<T>
   const k = 'mh:' + key
-  try {
-    const hit = JSON.parse(localStorage.getItem(k) ?? 'null')
-    if (hit && Date.now() - hit.t < ttlMs) return hit.v as T
-  } catch { /* storage unavailable */ }
-  const v = await fn()
-  try { localStorage.setItem(k, JSON.stringify({ t: Date.now(), v })) } catch { /* quota / private mode */ }
-  return v
+  const p = (async () => {
+    try {
+      const hit = JSON.parse(localStorage.getItem(k) ?? 'null')
+      if (hit && Date.now() - hit.t < ttlMs) return hit.v as T
+    } catch { /* storage unavailable */ }
+    const v = await fn()
+    try { localStorage.setItem(k, JSON.stringify({ t: Date.now(), v })) } catch { /* quota / private mode */ }
+    return v
+  })()
+  memory.set(key, { t: Date.now(), p })
+  p.catch(() => memory.delete(key)) // failed calls must be retryable
+  return p
 }
 
 /** Fetch page 1, then all remaining pages in parallel. */
@@ -151,16 +163,6 @@ export const getNif = (m: Municipality) =>
 // `nif` matches buyer OR supplier; we only want contracts where the Câmara is the buyer.
 const isBuyer = (nif: string) => (c: Contract) => c.contractingEntity.startsWith(nif)
 
-export const PAGE_SIZE = 10
-
-export const getContractsPage = (nif: string, page: number) =>
-  cached(`contracts:${nif}:${page}`, HOUR, async () => {
-    const r = await api<Page<Contract>>(`/v1/base/contracts?nif=${nif}&limit=${PAGE_SIZE}&page=${page}`)
-    // ponytail: rows where the Câmara is the supplier are dropped after paging, so a page can
-    // show < PAGE_SIZE rows; rare for councils. Fix needs a server-side buyer-only filter.
-    return { rows: r.data.filter(isBuyer(nif)), pages: r.pages, total: r.total }
-  })
-
 /** Oldest contract year = the last item of the newest-first list. */
 export const getFirstYear = (nif: string) =>
   cached('first-year:' + nif, 7 * DAY, async () => {
@@ -170,11 +172,18 @@ export const getFirstYear = (nif: string) =>
     return Number(last.data[0]?.date.slice(0, 4)) || new Date().getFullYear()
   })
 
-export const getYearSummary = (nif: string, year: number) =>
-  cached(`year:${nif}:${year}`, year === new Date().getFullYear() ? HOUR : 7 * DAY, async () => {
-    const rows = (await allPages<Contract>(`/v1/base/contracts?nif=${nif}&year=${year}`)).filter(isBuyer(nif))
+export type ContractRow = Pick<Contract, 'id' | 'description' | 'awarded' | 'value' | 'date' | 'type'>
+
+/** Every contract the Câmara signed in `year` (newest first) — feeds both the table and the chart. */
+export const getYear = (nif: string, year: number) =>
+  // "year2:" — v1 entries only held totals, not rows.
+  cached(`year2:${nif}:${year}`, year === new Date().getFullYear() ? HOUR : 7 * DAY, async () => {
+    const rows: ContractRow[] = (await allPages<Contract>(`/v1/base/contracts?nif=${nif}&year=${year}`))
+      .filter(isBuyer(nif))
+      .map(({ id, description, awarded, value, date, type }) => ({ id, description, awarded, value, date, type }))
+      .sort((a, b) => b.date.localeCompare(a.date))
     const months = monthlyTotals(rows)
-    return { count: rows.length, total: months.reduce((a, b) => a + b, 0), months }
+    return { rows, months, total: months.reduce((a, b) => a + b, 0) }
   })
 
 export const baseUrl = (id: string) => `https://www.base.gov.pt/Base4/pt/detalhe/?type=contratos&id=${enc(id)}`

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  baseUrl, getAlerts, getContractsPage, getFirstYear, getFuel, getMunicipalities, getNif, getWeather,
-  getYearSummary, regionLabel, type Municipality,
+  baseUrl, getAlerts, getFirstYear, getFuel, getMunicipalities, getNif, getWeather, getYear,
+  regionLabel, type ContractRow, type Municipality,
 } from './api'
 import { dict, errorText, LangCtx, useT, type Lang } from './i18n'
 import { stripNif } from './logic'
@@ -145,7 +145,12 @@ function Dashboard({ m }: { m: Municipality }) {
   const weather = useAsync(() => getWeather(m), [])
   const alerts = useAsync(() => getAlerts(m), [])
   const fuel = useAsync(() => getFuel(m), [])
-  const nif = useAsync(() => getNif(m), [])
+  const thisYear = new Date().getFullYear()
+  const [year, setYear] = useState(thisYear)
+  // getNif is cached and deduped, so awaiting it in both hooks costs one request.
+  const first = useAsync(async () => getFirstYear(await getNif(m)), [])
+  const yearData = useAsync(async () => getYear(await getNif(m), year), [year])
+  const years = Array.from({ length: thisYear - (first.data ?? thisYear) + 1 }, (_, i) => thisYear - i)
 
   return (
     <>
@@ -202,77 +207,67 @@ function Dashboard({ m }: { m: Municipality }) {
       </div>
 
       <div className="row2">
-        <Card title={t.contracts} seed={21} theme={THEMES.contracts}>
-          <Load s={nif} lines={6}>{n => <ContractsTable nif={n} />}</Load>
+        <Card title={`${t.contracts} · ${year}`} seed={21} theme={THEMES.contracts}>
+          <Load s={yearData} lines={8}>{d => <ContractsTable key={year} rows={d.rows} year={year} />}</Load>
         </Card>
         <Card title={t.year} seed={22} theme={THEMES.year}>
-          <Load s={nif} lines={6}>{n => <YearPanel nif={n} />}</Load>
+          <label className="year">
+            <span>{t.yearLabel}</span>
+            <select value={year} onChange={e => setYear(Number(e.target.value))}>
+              {years.map(y => <option key={y}>{y}</option>)}
+            </select>
+          </label>
+          <Load s={yearData} lines={5}>{d => (
+            <>
+              <p className="big">{fmtEur(d.total)}</p>
+              <p>{t.countIn(d.rows.length.toLocaleString('pt-PT'), year)}</p>
+              <Bars values={d.months} labels={t.months} format={fmtEur} color={THEMES.year.ink} title={t.monthly} />
+              <p className="note vat"><strong>{t.vat}</strong> {t.vatNote}</p>
+            </>
+          )}</Load>
         </Card>
       </div>
     </>
   )
 }
 
-function ContractsTable({ nif }: { nif: string }) {
+const PAGE_SIZE = 10
+
+/** Pages through the selected year's contracts client-side (keyed by year, so it resets to page 1). */
+function ContractsTable({ rows, year }: { rows: ContractRow[]; year: number }) {
   const t = useT()
   const [page, setPage] = useState(1)
-  const s = useAsync(() => getContractsPage(nif, page), [nif, page])
-  return (
-    <Load s={s} lines={8}>{d => d.total === 0 ? <p>{t.noContracts}</p> : (
-      <>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>{t.cols.map((c, i) => <th key={c} className={i === 3 ? 'num' : undefined}>{c}</th>)}</tr>
-            </thead>
-            <tbody>
-              {d.rows.map(c => (
-                <tr key={c.id}>
-                  <td className="nowrap">{fmtDate(c.date)}</td>
-                  <td><a href={baseUrl(c.id)} target="_blank" rel="noreferrer" title={t.openBase}>{c.description}</a></td>
-                  <td>{stripNif(c.awarded) || '—'}</td>
-                  <td className="num nowrap amount">{c.value === null ? '—' : fmtEur(c.value)}</td>
-                  <td><span className="chip">{c.type}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <nav className="pager" aria-label={t.pagesAria}>
-          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{t.newer}</button>
-          <span>{t.pageOf(page, d.pages.toLocaleString('pt-PT'))}</span>
-          <button disabled={page >= d.pages} onClick={() => setPage(p => p + 1)}>{t.older}</button>
-        </nav>
-        <p className="note">{t.contractsNote}</p>
-      </>
-    )}</Load>
-  )
-}
-
-function YearPanel({ nif }: { nif: string }) {
-  const t = useT()
-  const thisYear = new Date().getFullYear()
-  const [year, setYear] = useState(thisYear)
-  const first = useAsync(() => getFirstYear(nif), [nif])
-  const summary = useAsync(() => getYearSummary(nif, year), [nif, year])
-  const years = Array.from({ length: thisYear - (first.data ?? thisYear) + 1 }, (_, i) => thisYear - i)
-
+  if (rows.length === 0) return <p>{t.noContracts(year)}</p>
+  const pages = Math.ceil(rows.length / PAGE_SIZE)
   return (
     <>
-      <label className="year">
-        <span>{t.yearLabel}</span>
-        <select value={year} onChange={e => setYear(Number(e.target.value))}>
-          {years.map(y => <option key={y}>{y}</option>)}
-        </select>
-      </label>
-      <Load s={summary} lines={5}>{d => (
-        <>
-          <p className="big">{fmtEur(d.total)}</p>
-          <p>{t.countIn(d.count.toLocaleString('pt-PT'), year)}</p>
-          <Bars values={d.months} labels={t.months} format={fmtEur} color={THEMES.year.ink} title={t.monthly} />
-          <p className="note vat"><strong>{t.vat}</strong> {t.vatNote}</p>
-        </>
-      )}</Load>
+      <p className="note">{t.showingYear(rows.length.toLocaleString('pt-PT'), year)}</p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>{t.cols.map((c, i) => <th key={c} className={i === 3 ? 'num' : undefined}>{c}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(c => (
+              <tr key={c.id}>
+                <td className="nowrap">{fmtDate(c.date)}</td>
+                <td><a href={baseUrl(c.id)} target="_blank" rel="noreferrer" title={t.openBase}>{c.description}</a></td>
+                <td>{stripNif(c.awarded) || '—'}</td>
+                <td className="num nowrap amount">{c.value === null ? '—' : fmtEur(c.value)}</td>
+                <td><span className="chip">{c.type}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pages > 1 && (
+        <nav className="pager" aria-label={t.pagesAria}>
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{t.newer}</button>
+          <span>{t.pageOf(page, pages.toLocaleString('pt-PT'))}</span>
+          <button disabled={page >= pages} onClick={() => setPage(p => p + 1)}>{t.older}</button>
+        </nav>
+      )}
+      <p className="note">{t.contractsNote}</p>
     </>
   )
 }
