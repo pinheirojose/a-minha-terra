@@ -105,6 +105,7 @@ const en: typeof pt = {
 export const dict = { pt, en }
 export type T = typeof pt
 export const LangCtx = createContext<T>(pt)
+/** Current language's strings (provided by App via LangCtx). */
 export const useT = () => useContext(LangCtx)
 
 /** api.ts throws short codes ("rateLimit", "http:503"); turn them into a sentence. */

@@ -17,7 +17,11 @@ const HOUR = 60 * MIN
 const DAY = 24 * HOUR
 const enc = encodeURIComponent
 
-/** All calls go through the Vite proxy (/api → api.apiaberta.pt), which adds the API key. */
+/**
+ * GET one API Aberta endpoint and parse the JSON.
+ * Calls go through /api (Vite proxy in dev, api/proxy.ts on Vercel), which adds the API key.
+ * Throws short error codes ("rateLimit", "badKey", "http:503") that i18n's errorText translates.
+ */
 async function api<T>(path: string, retried = false): Promise<T> {
   const r = await fetch('/api' + path)
   if (r.status === 429 && !retried) {
@@ -73,6 +77,7 @@ export const regionLabel = (m: Municipality) =>
   m.district ?? (m.coords.lng < -20 ? 'Açores' : 'Madeira')
 
 // ---------- Municipalities ----------
+/** All 308 concelhos, sorted by name (Portuguese collation). Cached for a week. */
 export const getMunicipalities = () =>
   cached('municipalities', 7 * DAY, async () => {
     const r = await api<Page<Municipality>>('/v1/geo/municipalities?limit=400')
@@ -85,6 +90,10 @@ export const getMunicipalities = () =>
 type IpmaLocation = { globalIdLocal: number; name: string; latitude: string; longitude: string }
 type Forecast = { date: string; tMin: number; tMax: number; description: string; precipProb: number; windDir: string }
 
+/**
+ * Today's IPMA forecast for the municipality: picks the IPMA location with the same name,
+ * else the nearest one, and reports how far away it is (`km`). Cached 30 min.
+ */
 export const getWeather = (m: Municipality) =>
   cached('weather:' + m.slug, 30 * MIN, async () => {
     const locs = await cached('ipma-locations', 7 * DAY, () =>
@@ -110,6 +119,10 @@ export type Incident = {
   resources: { ground: number; aerial: number }
 }
 
+/**
+ * Active ANEPC incidents in this municipality, plus a count of those elsewhere in the district.
+ * Returns null for Azores/Madeira (not covered). Cached 5 min.
+ */
 export const getAlerts = (m: Municipality) =>
   cached('alerts:' + m.slug, 5 * MIN, async () => {
     if (!m.district) return null // ANEPC doesn't cover the autonomous regions
@@ -127,6 +140,10 @@ export type FuelRow = { slug: string; avg: number | null; scope: 'concelho' | 'd
 
 const FUELS = ['diesel', 'gasoline_95'] as const
 
+/**
+ * Average diesel / petrol 95 price from DGEG station data, using only the latest day's prices.
+ * Falls back from municipality → district → national average when there are no stations. Cached 1 h.
+ */
 export const getFuel = (m: Municipality) =>
   cached('fuel:' + m.slug, HOUR, async () => {
     const national = await api<{ data: FuelSummary[] }>('/v1/fuel/prices')
@@ -186,4 +203,5 @@ export const getYear = (nif: string, year: number) =>
     return { rows, months, total: months.reduce((a, b) => a + b, 0) }
   })
 
+/** Link to a contract's detail page on BASE.gov.pt. */
 export const baseUrl = (id: string) => `https://www.base.gov.pt/Base4/pt/detalhe/?type=contratos&id=${enc(id)}`

@@ -24,6 +24,7 @@ const THEMES = {
 type Theme = (typeof THEMES)[keyof typeof THEMES]
 const themeVars = (t: Theme) => ({ '--accent': t.ink, '--hl': t.hl, '--tint': t.fill }) as CSSProperties
 
+/** localStorage get/set that never throw (private mode, blocked storage). */
 const read = (k: string) => { try { return localStorage.getItem(k) } catch { return null } }
 const write = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* ignore */ } }
 
@@ -60,6 +61,7 @@ function Load<T>({ s, lines, children }: { s: Async<T>; lines?: number; children
   return <>{children(s.data)}</>
 }
 
+/** A themed, hand-drawn dashboard card with a highlighted title. */
 function Card({ title, seed, theme, children }: { title: string; seed: number; theme: Theme; children: ReactNode }) {
   return (
     <Sketch as="section" seed={seed} className="card" fill={theme.fill} stroke={theme.ink} style={themeVars(theme)}>
@@ -69,6 +71,7 @@ function Card({ title, seed, theme, children }: { title: string; seed: number; t
   )
 }
 
+/** Page shell: header with language toggle and concelho picker, then the dashboard. Remembers both choices. */
 export default function App() {
   const [lang, setLang] = useState<Lang>(() => (read('mh:lang') === 'en' ? 'en' : 'pt'))
   const t = dict[lang]
@@ -140,6 +143,10 @@ function Picker({ list, current, onChoose }: { list: Municipality[]; current?: M
   )
 }
 
+/**
+ * All cards for one municipality. Each source loads independently; keyed by slug in App,
+ * so switching concelho remounts it and starts fresh.
+ */
 function Dashboard({ m }: { m: Municipality }) {
   const t = useT()
   const weather = useAsync(() => getWeather(m), [])

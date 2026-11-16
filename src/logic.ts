@@ -16,6 +16,7 @@ export function nearest<T extends Point>(points: T[], p: Point): T & { km: numbe
   return { ...best, km: km(best) }
 }
 
+/** Arithmetic mean, or null for an empty list. */
 export const average = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
 
 /** Sum contract values per calendar month (index 0 = January). */

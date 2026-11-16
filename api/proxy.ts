@@ -2,6 +2,7 @@
 // adding the API key server-side. vercel.json rewrites /api/* here as ?path=<path>.
 const UPSTREAM = 'https://api.apiaberta.pt/'
 
+/** Forward an allowed v1 GET to API Aberta and stream the response back with CDN cache headers. */
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const path = url.searchParams.get('path') ?? ''
